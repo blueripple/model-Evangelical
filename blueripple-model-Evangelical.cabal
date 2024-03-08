@@ -1,0 +1,80 @@
+cabal-version: 3.0
+
+name:           blueripple-model-Evangelical
+version:        0.1.0.0
+synopsis:       tools for modeling Evangelical correlation structure
+category:       Data
+homepage:       https://github.com/blueripple/model-Evangelical#readme
+bug-reports:    https://github.com/blueripple/model-Evangelical/issues
+author:         Adam Conner-Sax
+maintainer:     adam@blueripplepolitics.org
+copyright:      2024 Adam Conner-Sax
+license:        BSD-3-Clause
+build-type:     Simple
+
+source-repository head
+  type: git
+  location: https://github.com/blueripple/model-Evangelical
+
+library
+  exposed-modules: BlueRipple.Model.Evangelical.Model
+
+  hs-source-dirs: src
+  ghc-options: -Wall -O2 -fno-warn-unused-top-binds -funbox-strict-fields
+  build-depends:
+     blueripple-small-data-sets
+   , blueripple-data-loading
+   , blueripple-data-tools
+   , blueripple-data-types
+   , blueripple-data-visualizations
+   , blueripple-data-ACS-PUMS
+   , blueripple-data-ACS-Tables
+   , blueripple-data-CES
+   , blueripple-data-CPS-VS
+   , blueripple-model-demographic
+   , blueripple-model-election2
+   , blueripple-model-tools
+   , array >= 0.5 && < 0.6
+   , cassava >= 0.5.3 && < 0.6
+   , Frames >= 0.7 && < 0.8
+   , Frames-utils >= 0.3.1
+   , Frames-streamly >= 0.2
+   , Frames-serialize >= 0.1.0
+   , base >=4.12.0 && <5
+   , colonnade >= 1.2 && < 1.3
+   , containers >=0.5.0 && <0.8
+   , dependent-sum >= 0.7.2 && < 0.8
+   , directory >=1.3.3.0 && <1.4.0.0
+   , exceptions >=0.10.4 && <0.11
+   , flat >= 0.6 && < 0.7
+   , foldl >= 1.4 && < 1.5
+   , foldl-statistics >= 0.1.5 && < 0.2
+   , haskell-stan >= 0.1 && < 0.2
+   , hs-cmdstan >= 0.1 && < 0.2
+   , hmatrix >= 0.20 && < 0.21
+   , hmatrix-nlopt >= 0.2 && < 0.3
+   , hvega >= 0.12 && < 0.15
+   , hvega-utils >= 0.3 && < 0.5
+   , knit-haskell >= 0.8 && < 0.11
+   , lens >= 5 && < 6
+   , map-reduce-folds >= 0.1.1.1 && < 0.2
+   , nonlinear-optimization-ad >= 0.2.4 && < 0.3
+   , Frames-map-reduce >= 0.4 && < 0.5
+   , mtl >= 2.2 && < 2.4
+   , pandoc >= 3.1 && < 4
+   , path >= 0.9 && < 0.10
+   , polysemy >= 1.9 && < 2
+   , profunctors >= 5.6 && < 6
+   , relude >= 1.0.0 && < 1.3
+   , say >= 0.1 && < 0.2
+   , text >=1.2.3 && < 2.2
+   , vector >= 0.12 && < 0.14
+   , vinyl >= 0.13 && < 0.15
+   , streamly >=0.9 && <0.11
+   , streamly-core >=0.1.0 && <0.3
+   , streamly-bytestring >=0.2.0 && < 0.3
+
+  mixins:  base hiding (Prelude)
+         , relude (Relude as Prelude
+         , Relude.Extra)
+  default-language: Haskell2010
