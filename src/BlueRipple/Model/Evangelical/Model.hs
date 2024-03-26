@@ -351,7 +351,8 @@ cachedPreppedCES cacheStructure cy = do
   cacheDirE' <- K.knitMaybe "cachedPreppedCES: Empty cacheDir given!" $ BRCC.insureFinalSlashE $ MR.csProjectCacheDirE cacheStructure
   rawCESByCD_C <- cesCountedEvangelicalsByCD False cy
   let cyInt = CCES.cesYear cy
-  acs_C <- fmap (F.filterFrame ((== DT.Citizen) . view DT.citizenC)) <$> (DDP.cachedACSa5ByCD ACS.acs1Yr2012_21 (min 2021 cyInt) (Just cyInt)) -- so we get density from closest year as survey
+      (srcWindow, cachedSrc) = ACS.acs1Yr2012_22
+  acs_C <- fmap (F.filterFrame ((== DT.Citizen) . view DT.citizenC)) <$> (DDP.cachedACSa5ByCD srcWindow cachedSrc (min 2022 cyInt) (Just cyInt)) -- so we get density from closest year as survey
 --  K.ignoreCacheTime acs_C >>= BRLC.logFrame . F.filterFrame ((== "MT") . view GT.stateAbbreviation)
   let appendCacheFile :: Text -> Text -> Text
       appendCacheFile t d = d <> t
