@@ -28,6 +28,7 @@ import BlueRipple.Model.Election2.ModelCommon (ModelConfig(..))
 import qualified BlueRipple.Model.Election2.ModelCommon2 as MC2
 import qualified BlueRipple.Model.Election2.ModelRunner as MR
 import qualified BlueRipple.Model.Demographic.DataPrep as DDP
+import qualified BlueRipple.Model.StanTools as MST
 
 --import qualified BlueRipple.Configuration as BR
 import qualified BlueRipple.Data.CachingCore as BRCC
@@ -211,8 +212,9 @@ runModel :: forall l k r b .
          -> K.Sem r (K.ActionWithCacheTime r (MC.PSMap l MT.ConfidenceInterval, MC2.ModelParameters))
 runModel modelDirE modelName gqName runConfig config modelData_C psData_C = do
   let dataName = MC.modelConfigText config
-      runnerInputNames = SC.RunnerInputNames
-                         ("br-2023-TSP/stan/" <> modelName <> "/")
+  stanDir <- K.liftKnit MST.stanDir >>= K.knitMaybe "runModel: empty stanDir!" . BRCC.insureFinalSlash
+  let runnerInputNames = SC.RunnerInputNames
+                         (stanDir <> modelName <> "/")
                          (MC.modelConfigText config)
                          (Just $ SC.GQNames "GQ" (dataName <> "_" <> gqName))
                          dataName
