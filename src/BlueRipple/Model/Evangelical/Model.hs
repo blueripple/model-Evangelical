@@ -119,7 +119,7 @@ runEvangelicalModel cesYear cacheStructure psType mc psData_C = do
   runModel (MR.csModelDirE cacheStructure)  ("E_" <> show (CCES.cesYear cesYear))
     (MR.csPSName cacheStructure) runConfig mc modelData_C psData_C
 
-evangelicalModelData ::  forall b gq . ModelConfig b -> SMB.StanBuilderM CESData gq (MC.ModelData '[] CESByCD b)
+evangelicalModelData ::  forall b gq . ModelConfig b -> SMB.StanBuilderM CESData gq (MC.ModelData CESByCD b)
 evangelicalModelData mc = do
   let cesSurveyDataTag = SMB.dataSetTag @CESByCD SC.ModelData "CES"
       uwSurveyed rtt = SBB.addCountData rtt "Surveyed" (view DP.surveyed)

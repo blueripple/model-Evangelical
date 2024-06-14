@@ -1,4 +1,4 @@
-packages: ./
+packages: ./ ../model-election2
 jobs: 4
 with-compiler: ghc
 
@@ -9,28 +9,32 @@ allow-newer: polysemy-zoo:ghc-prim, streamly-core
            , heidi:base
            , generic-trie:base
            , streamly-bytestring:streamly-core
-           , nonlinear-optimization:primitive
+           , nonlinear-optimization:primitive, nonlinear-optimization:vector
 
 flags: +streamly9
 
 import: ../cabal_repo_imports/small-data-sets.project
 import: ../cabal_repo_imports/data-types.project
 import: ../cabal_repo_imports/data-tools.project
+import: ../cabal_repo_imports/post-tools.project
 import: ../cabal_repo_imports/data-loading.project
 import: ../cabal_repo_imports/data-visualizations.project
 import: ../cabal_repo_imports/data-ACS-Tables.project
 import: ../cabal_repo_imports/data-ACS-PUMS.project
 import: ../cabal_repo_imports/data-CES.project
 import: ../cabal_repo_imports/data-CPS-VS.project
+import: ../cabal_repo_imports/data-RDH-voterfiles.project
 import: ../cabal_repo_imports/model-tools.project
 import: ../cabal_repo_imports/model-demographic.project
-import: ../cabal_repo_imports/model-election2.project
+--import: ../cabal_repo_imports/model-election2.project
 import: ../cabal_repo_imports/haskell-stan.project
 import: ../cabal_repo_imports/knit-haskell.project
 import: ../cabal_repo_imports/Frames-streamly.project
 import: ../cabal_repo_imports/Frames-serialize.project
 import: ../cabal_repo_imports/Frames-utils.project
 import: ../cabal_repo_imports/Frames-hvega.project
+import: ../cabal_repo_imports/data-science-utils.project
 import: ../cabal_repo_imports/hvega-utils.project
+import: ../cabal_repo_imports/hTensor.project
 import: ../cabal_repo_imports/map-reduce-folds.project
 import: ../cabal_repo_imports/heidi.project
