@@ -126,8 +126,11 @@ evangelicalModelData mc = do
       uwEvangelical rtt = SBB.addCountData rtt "Evangelical" (view nEvangelical)
       wSurveyed rtt = SBB.addRealData rtt "Surveyed" (Just 0) Nothing (view DP.surveyedW)
       wEvangelical rtt = SBB.addRealData rtt "Evangelical" (Just 0) Nothing (view nEvangelicalW)
+      rwSurveyed rtt = SBB.addCountData rtt "Surveyed" (round @_ @Int . view DP.surveyedW)
+      rwEvangelical rtt = SBB.addCountData rtt "Evangelical" (round @_ @Int . view nEvangelicalW)
   case mc.mcSurveyAggregation of
         MC.UnweightedAggregation -> fmap MC.ModelData $ cesSurveyDataTag >>= \rtt -> MC.covariatesAndCountsFromData rtt mc uwSurveyed uwEvangelical
+        MC.RoundedWeightedAggregation -> fmap MC.ModelData $ cesSurveyDataTag >>= \rtt -> MC.covariatesAndCountsFromData rtt mc rwSurveyed rwEvangelical
         MC.WeightedAggregation _ -> fmap MC.ModelData $ cesSurveyDataTag >>= \rtt -> MC.covariatesAndCountsFromData rtt mc wSurveyed wEvangelical
 
 
@@ -395,7 +398,7 @@ cesCountedEvangelicalsByCD clearCaches cy = do
 
 cesMR ∷ forall lk rs f m .
         (Foldable f, Functor f, Monad m
-        , FC.ElemsOf rs [BR.Year, DT.EvangelicalC, DT.EducationC, DT.HispC, DT.Race5C, CCES.CESWeight]
+        , FC.ElemsOf rs [BR.Year, DT.EvangelicalC, DT.EducationC, DT.HispC, DT.Race5C, CCES.CESPostWeight]
         , rs F.⊆ (DT.Education4C ': rs)
         , (lk V.++ DP.DCatsR) V.++ CountDataR ~ ((lk V.++ DP.DCatsR) V.++ CountDataR)
         , Ord (F.Record (lk V.++ DP.DCatsR))
@@ -410,12 +413,12 @@ cesMR earliestYear =
   countCESF
   . fmap (DP.cesAddEducation4 . DP.cesRecodeHispanic)
 
-countCESF :: (FC.ElemsOf rs [DT.EvangelicalC, CCES.CESWeight])
+countCESF :: (FC.ElemsOf rs [DT.EvangelicalC, CCES.CESPostWeight])
           => FL.Fold
              (F.Record rs)
              (F.Record CountDataR)
 countCESF =
-  let wgt = view CCES.cESWeight
+  let wgt = view CCES.cESPostWeight
       evangelical = (== DT.Evangelical) . view DT.evangelicalC
       surveyedF = FL.length
       surveyWgtF = FL.premap wgt FL.sum

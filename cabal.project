@@ -1,4 +1,4 @@
-packages: ./ ../model-election2
+packages: ./ ../model-election2 ~/DataScience/hvega-utils ../data-CES
 jobs: 4
 with-compiler: ghc
 
@@ -21,7 +21,7 @@ import: ../cabal_repo_imports/data-loading.project
 import: ../cabal_repo_imports/data-visualizations.project
 import: ../cabal_repo_imports/data-ACS-Tables.project
 import: ../cabal_repo_imports/data-ACS-PUMS.project
-import: ../cabal_repo_imports/data-CES.project
+--import: ../cabal_repo_imports/data-CES.project
 import: ../cabal_repo_imports/data-CPS-VS.project
 import: ../cabal_repo_imports/data-RDH-voterfiles.project
 import: ../cabal_repo_imports/model-tools.project
@@ -34,7 +34,8 @@ import: ../cabal_repo_imports/Frames-serialize.project
 import: ../cabal_repo_imports/Frames-utils.project
 import: ../cabal_repo_imports/Frames-hvega.project
 import: ../cabal_repo_imports/data-science-utils.project
-import: ../cabal_repo_imports/hvega-utils.project
+import: ../cabal_repo_imports/nlopt-haskell.project
+--import: ../cabal_repo_imports/hvega-utils.project
 import: ../cabal_repo_imports/hTensor.project
 import: ../cabal_repo_imports/map-reduce-folds.project
 import: ../cabal_repo_imports/heidi.project
