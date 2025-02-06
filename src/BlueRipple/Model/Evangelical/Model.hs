@@ -44,6 +44,11 @@ import qualified BlueRipple.Data.FramesUtils as BRF
 
 import qualified Knit.Report as K
 
+import qualified Stan as S
+import qualified Stan.Libraries.BuildingBlocks as SBB (rowLength)
+import Stan (TypedList(..))
+import Stan.Operators
+{-
 import qualified Stan.ModelBuilder as SMB
 import qualified Stan.ModelRunner as SMR
 import qualified Stan.ModelBuilder.TypedExpressions.Statements as TE
@@ -55,6 +60,7 @@ import qualified Stan.RScriptBuilder as SR
 import qualified Stan.ModelBuilder.BuildingBlocks as SBB
 import qualified Stan.ModelBuilder.BuildingBlocks.GroupAlpha as SG
 import qualified Stan.ModelBuilder.DesignMatrix as DM
+-}
 import qualified CmdStan as CS
 
 import qualified Frames as F
@@ -106,7 +112,7 @@ runEvangelicalModel :: forall l r ks b .
                    , l F.⊆ DP.PSDataR ks --'[GT.StateAbbreviation]
                    , Show (F.Record l)
                    )
-                => CCES.CESYear
+                => CCES.SurveyYear
                 -> MR.CacheStructure () ()
                 -> PSType (F.Record DP.DCatsR -> Bool)
                 -> ModelConfig b
@@ -119,19 +125,34 @@ runEvangelicalModel cesYear cacheStructure psType mc psData_C = do
   runModel (MR.csModelDirE cacheStructure)  ("E_" <> show (CCES.cesYear cesYear))
     (MR.csPSName cacheStructure) runConfig mc modelData_C psData_C
 
-evangelicalModelData ::  forall b gq . ModelConfig b -> SMB.StanBuilderM CESData gq (MC.ModelData CESByCD b)
+type ModelRTT = S.RowTypeTag CESByCD
+type ModelData b = MC.ModelData CESByCD b
+
+evangelicalModelData ::  forall b gq . ModelConfig b -> S.StanModelBuilderEff CESData gq (MC.ModelData CESByCD b)
 evangelicalModelData mc = do
-  let cesSurveyDataTag = SMB.dataSetTag @CESByCD SC.ModelData "CES"
-      uwSurveyed rtt = SBB.addCountData rtt "Surveyed" (view DP.surveyed)
-      uwEvangelical rtt = SBB.addCountData rtt "Evangelical" (view nEvangelical)
-      wSurveyed rtt = SBB.addRealData rtt "Surveyed" (Just 0) Nothing (view DP.surveyedW)
-      wEvangelical rtt = SBB.addRealData rtt "Evangelical" (Just 0) Nothing (view nEvangelicalW)
-      rwSurveyed rtt = SBB.addCountData rtt "Surveyed" (round @_ @Int . view DP.surveyedW)
-      rwEvangelical rtt = SBB.addCountData rtt "Evangelical" (round @_ @Int . view nEvangelicalW)
+  let modelIDT :: S.InputDataType S.ModelDataT CESData = S.ModelData
+      cesSurveyDataTag :: S.StanModelBuilderEff CESData gq ModelRTT
+      cesSurveyDataTag = S.getRTT modelIDT "CES"
+  let uwSurveyed :: FC.ElemsOf rs [DP.Surveyed, DP.SurveyWeight] => ModelRTT -> S.StanModelBuilderEff CESData gq S.IntArrayE
+      uwSurveyed rtt = S.addCountData modelIDT rtt "Surveyed" (view DP.surveyed)
+      weightedCount ws = DP.weightedCountF ws (view DP.surveyed) (view DP.surveyWeight) (view DP.surveyedESS)
+      weightedQty ws = DP.weightedQtyF ws (view DP.surveyed) (view DP.surveyWeight) (view DP.surveyedESS)
+      uwEvangelical :: FC.ElemsOf rs [NEvangelical, DP.SurveyWeight] => ModelRTT -> S.StanModelBuilderEff CESData gq S.IntArrayE
+      uwEvangelical rtt = S.addCountData modelIDT rtt "Evangelical" (view nEvangelical)
+      wSurveyed :: FC.ElemsOf rs '[DP.Surveyed, DP.SurveyWeight, DP.SurveyedESS]
+                => DP.WeightingStyle -> ModelRTT -> S.StanModelBuilderEff CESData gq S.VectorE
+      wSurveyed ws rtt = S.addRealData modelIDT rtt "Surveyed" (Just 0) Nothing (weightedCount ws)
+      wEvangelical :: FC.ElemsOf rs [NEvangelicalW, DP.SurveyWeight] => DP.WeightingStyle -> ModelRTT -> S.StanModelBuilderEff CESData gq S.VectorE
+      wEvangelical ws rtt = S.addRealData modelIDT rtt "Evangelical" (Just 0) Nothing (weightedQty ws (view nEvangelicalW))
+      rwSurveyed :: FC.ElemsOf rs [DP.Surveyed, DP.SurveyWeight, DP.SurveyedESS]
+                 => DP.WeightingStyle -> ModelRTT -> S.StanModelBuilderEff CESData gq S.IntArrayE
+      rwSurveyed ws rtt = S.addCountData modelIDT rtt "Surveyed" (round . weightedCount ws)
+      rwEvangelical ::  FC.ElemsOf rs [NEvangelical, DP.SurveyWeight] => DP.WeightingStyle -> ModelRTT -> S.StanModelBuilderEff CESData gq S.IntArrayE
+      rwEvangelical ws rtt = S.addCountData modelIDT rtt "Evangelical" (round . weightedQty ws (view nEvangelicalW))
   case mc.mcSurveyAggregation of
         MC.UnweightedAggregation -> fmap MC.ModelData $ cesSurveyDataTag >>= \rtt -> MC.covariatesAndCountsFromData rtt mc uwSurveyed uwEvangelical
-        MC.RoundedWeightedAggregation -> fmap MC.ModelData $ cesSurveyDataTag >>= \rtt -> MC.covariatesAndCountsFromData rtt mc rwSurveyed rwEvangelical
-        MC.WeightedAggregation _ -> fmap MC.ModelData $ cesSurveyDataTag >>= \rtt -> MC.covariatesAndCountsFromData rtt mc wSurveyed wEvangelical
+        MC.RoundedWeightedAggregation ws -> fmap MC.ModelData $ cesSurveyDataTag >>= \rtt -> MC.covariatesAndCountsFromData rtt mc (rwSurveyed ws) (rwEvangelical ws)
+        MC.WeightedAggregation _ ws -> fmap MC.ModelData $ cesSurveyDataTag >>= \rtt -> MC.covariatesAndCountsFromData rtt mc (wSurveyed ws) (wEvangelical ws)
 
 
 data PSType a = PSAll Text | PSGiven Text Text a | PSAmong Text Text a
@@ -141,28 +162,27 @@ psPrefix (PSAll p) = p
 psPrefix (PSGiven p _ _) = p
 psPrefix (PSAmong p _ _) = p
 
-psTypeDataGQ :: DP.DCatsR F.⊆ DP.PSDataR k
-             => SMB.RowTypeTag (F.Record (DP.PSDataR k)) -> PSType (F.Record DP.DCatsR -> Bool) -> SMB.StanBuilderM md gq (PSType TE.IntArrayE)
+psTypeDataGQ :: forall k md gq . DP.DCatsR F.⊆ DP.PSDataR k
+             => S.RowTypeTag (F.Record (DP.PSDataR k)) -> PSType (F.Record DP.DCatsR -> Bool) -> S.StanModelBuilderEff md gq (PSType S.IntArrayE)
 psTypeDataGQ psRowTag pst = do
---  cesGQRowTag <- SMB.dataSetTag @CESByCD SC.ModelData "CES"
+--  cesGQRowTag <- S.dataSetTag @CESByCD S.ModelData "CES"
   let boolToInt :: Bool -> Int
       boolToInt False = 0
       boolToInt True = 1
+      psIDT :: S.InputDataType S.GQDataT (DP.PSData k) = S.GQData
   case pst of
     PSAll p -> pure $ PSAll p
-    PSGiven p vName cF -> SBB.addIntData psRowTag vName (Just 0) (Just 1) (boolToInt . cF . F.rcast) >>= pure . PSGiven p vName
-    PSAmong p vName cF -> SBB.addIntData psRowTag vName (Just 0) (Just 1) (boolToInt . cF . F.rcast) >>= pure . PSAmong p vName
+    PSGiven p vName cF -> S.addIntData psIDT psRowTag vName (Just 0) (Just 1) (boolToInt . cF . F.rcast) >>= pure . PSGiven p vName
+    PSAmong p vName cF -> S.addIntData psIDT psRowTag vName (Just 0) (Just 1) (boolToInt . cF . F.rcast) >>= pure . PSAmong p vName
 
-psTypeToArgs :: PSType TE.IntArrayE
-             -> (Text, Maybe (TE.CodeWriter (TE.VectorE -> TE.VectorE)), Maybe (TE.CodeWriter (TE.IntArrayE -> TE.IntArrayE)))
+psTypeToArgs :: PSType S.IntArrayE
+             -> (Text, Maybe (S.CodeWriter (S.VectorE -> S.VectorE)), Maybe (S.CodeWriter (S.IntArrayE -> S.IntArrayE)))
 psTypeToArgs (PSAll p) = (p, Nothing, Nothing)
-psTypeToArgs (PSGiven p _ ia) = let eltTimes = TE.binaryOpE (TEO.SElementWise TEO.SMultiply)
-                                in (p, Just $ pure $ \v -> v `eltTimes` SF.toVec ia, Nothing)
-psTypeToArgs (PSAmong p _ ia) = let eltTimes = TE.binaryOpE (TEO.SElementWise TEO.SMultiply)
-                                in (p, Nothing, Just $ pure $ \v -> v `eltTimes` ia)
+psTypeToArgs (PSGiven p _ ia) = (p, Just $ pure $ \v -> v |.*| S.to_vector ia, Nothing)
+psTypeToArgs (PSAmong p _ ia) = (p, Nothing, Just $ pure $ \v -> v |.*| ia)
 
 
-data RunConfig l = RunConfig { rcIncludePPCheck :: Bool, rcIncludeLL :: Bool, rcPS :: Maybe (SMB.GroupTypeTag (F.Record l), PSType (F.Record DP.DCatsR -> Bool)) }
+data RunConfig l = RunConfig { rcIncludePPCheck :: Bool, rcIncludeLL :: Bool, rcPS :: Maybe (S.GroupTypeTag (F.Record l), PSType (F.Record DP.DCatsR -> Bool)) }
 -- not returning anything for now
 model :: forall k l b .
          (Typeable (DP.PSDataR k)
@@ -173,7 +193,7 @@ model :: forall k l b .
       => RunConfig l
       -> ModelConfig b
       -> [Text]
-      -> SMB.StanBuilderM CESData (DP.PSData k) ()
+      -> S.StanModelBuilderEff CESData (DP.PSData k) ()
 model rc mc states = do
   mData <- evangelicalModelData mc
   paramSetup <- MC2.setupParameters Nothing states mc
@@ -181,12 +201,13 @@ model rc mc states = do
   modelM
   when rc.rcIncludePPCheck $ void ppM
   when rc.rcIncludeLL llM
+  let gqIDT :: S.InputDataType S.GQDataT (DP.PSData k) = S.GQData
   case rc.rcPS of
     Nothing -> pure ()
     Just (gtt, pst) -> do
-      psRowTag <- SMB.dataSetTag @(F.Record (DP.PSDataR k)) SC.GQData "PSData"
+      psRowTag <- S.getRTT @(F.Record (DP.PSDataR k)) gqIDT "PSData" --S.dataSetTag @(F.Record (DP.PSDataR k)) S.GQData "PSData"
       (prefix, modP, modN) <- fmap psTypeToArgs $ psTypeDataGQ @k psRowTag pst
-      MC2.postStratifyOne psRowTag (view DT.popCount) F.rcast prefix paramSetup modP modN mc.mcDesignMatrixRow (Just $ centerF SC.GQData) Nothing gtt >> pure ()
+      MC2.postStratifyOne gqIDT psRowTag (view DT.popCount) F.rcast prefix paramSetup modP modN mc.mcDesignMatrixRow (Just $ centerF S.GQDataT) Nothing gtt >> pure ()
 
 runModel :: forall l k r b .
             (K.KnitEffects r
@@ -216,34 +237,35 @@ runModel :: forall l k r b .
 runModel modelDirE modelName gqName runConfig config modelData_C psData_C = do
   let dataName = MC.modelConfigText config
   stanDir <- K.liftKnit MST.stanDir >>= K.knitMaybe "runModel: empty stanDir!" . BRCC.insureFinalSlash
-  let runnerInputNames = SC.RunnerInputNames
+  let runnerInputNames = S.RunnerInputNames
                          (stanDir <> modelName <> "/")
                          (MC.modelConfigText config)
-                         (Just $ SC.GQNames "GQ" (dataName <> "_" <> gqName))
+                         (Just $ S.GQNames "GQ" (dataName <> "_" <> gqName))
                          dataName
 --  modelData <- K.ignoreCacheTime modelData_C
   states <- S.toList . FL.fold (FL.premap (view GT.stateAbbreviation) FL.set) . unCESData <$> K.ignoreCacheTime modelData_C
   psKeys <- S.toList . FL.fold (FL.premap (F.rcast @l) FL.set) . DP.unPSData <$> K.ignoreCacheTime psData_C
-  (dw, code) <- SMR.dataWranglerAndCode modelData_C psData_C
-                (groupBuilder config states psKeys)
-                (model runConfig config states)
+  (dw, code) <- S.dataWranglerAndCode modelData_C psData_C
+                (groupBuilder config states)
+                (const $ psGroupBuilder states psKeys)
+                (\_ _ -> model runConfig config states)
 
-  let datSuffix = SC.rinData runnerInputNames
+  let datSuffix = S.rinData runnerInputNames
       jsonData t = "jsonData_" <> datSuffix <> "$" <> t
       evangelical = jsonData "Evangelical"
       surveyed = jsonData "Surveyed"
-      rSuffix = SC.rinModel runnerInputNames <> "_" <> datSuffix
+      rSuffix = S.rinModel runnerInputNames <> "_" <> datSuffix
       unwraps = case config.mcSurveyAggregation of
-        MC.WeightedAggregation MC.BetaProportion -> [SR.UnwrapExpr (evangelical <> " / " <> surveyed) ("yEvangelicalRate_" <> rSuffix)]
-        _ -> [SR.UnwrapNamed "Evangelical" ("yEvangelical_" <> rSuffix)]
-  res_C <- SMR.runModel' @BRCC.SerializerC @BRCC.CacheData
+        MC.WeightedAggregation MC.BetaProportion _ -> [S.UnwrapExpr (evangelical <> " / " <> surveyed) ("yEvangelicalRate_" <> rSuffix)]
+        _ -> [S.UnwrapNamed "Evangelical" ("yEvangelical_" <> rSuffix)]
+  res_C <- S.runModel' @BRCC.SerializerC @BRCC.CacheData
            modelDirE
            (Right runnerInputNames)
            Nothing
            dw
            code
-           (modelResultAction config runConfig) --SC.DoNothing -- (stateModelResultAction mcWithId dmr)
-           (SMR.Both unwraps) --(SMR.Both [SR.UnwrapNamed "successes" "yObserved"])
+           (modelResultAction config runConfig) --S.DoNothing -- (stateModelResultAction mcWithId dmr)
+           (S.Both unwraps) --(S.Both [S.UnwrapNamed "successes" "yObserved"])
            modelData_C
            psData_C
   K.logLE K.Info $ modelName <> " run complete."
@@ -251,22 +273,23 @@ runModel modelDirE modelName gqName runConfig config modelData_C psData_C = do
 
 groupBuilder :: forall g k l b .
                  (Foldable g
-                 , Typeable (DP.PSDataR k)
-                 , Show (F.Record l)
-                 , Ord (F.Record l)
-                 , l F.⊆ DP.PSDataR k
-                 , Typeable l
-                 , F.ElemOf (DP.PSDataR k) GT.StateAbbreviation
-                 , DP.DCatsR F.⊆ DP.PSDataR k
+--                 , Typeable (DP.PSDataR k)
+--                 , Show (F.Record l)
+--                 , Ord (F.Record l)
+--                 , l F.⊆ DP.PSDataR k
+--                 , Typeable l
+--                 , F.ElemOf (DP.PSDataR k) GT.StateAbbreviation
+--                 , DP.DCatsR F.⊆ DP.PSDataR k
                  )
                => ModelConfig b
                -> g Text
-               -> g (F.Record l)
-               -> SMB.StanGroupBuilderM CESData (DP.PSData k) ()
-groupBuilder _config states psKeys = do
+--               -> g (F.Record l)
+               -> S.StanDataBuilderEff S.ModelDataT CESData ()
+groupBuilder _config states = do
   let groups' = MC.groups states
-  SMB.addModelDataToGroupBuilder "CES" (SMB.ToFoldable unCESData) >>= MC.addGroupIndexesAndIntMaps groups'
-  psGroupBuilder states psKeys
+      modelIDT :: S.InputDataType S.ModelDataT CESData = S.ModelData
+  S.addData "CES" modelIDT (S.ToFoldable unCESData) >>= MC.addGroupIndexesAndIntMaps groups' >> pure ()
+--  psGroupBuilder states psKeys
 
 -- NB: often l ~ k, e.g., for predicting district turnout/preference
 -- But say you want to predict turnout by race, nationally.
@@ -284,14 +307,15 @@ psGroupBuilder :: forall g k l md .
                  )
                => g Text
                -> g (F.Record l)
-               -> SMB.StanGroupBuilderM md (DP.PSData k) ()
+               -> S.StanDataBuilderEff S.GQDataT (DP.PSData k) ()
 psGroupBuilder states psKeys = do
   let groups' = MC.groups states
+      gqIDT :: S.InputDataType S.GQDataT (DP.PSData k) = S.GQData
       psGtt = MC.psGroupTag @l
-  psRowTag <- SMB.addGQDataToGroupBuilder "PSData" (SMB.ToFoldable DP.unPSData)
-  SMB.addGroupIndexForData psGtt psRowTag $ SMB.makeIndexFromFoldable show F.rcast psKeys
-  SMB.addGroupIntMapForDataSet psGtt psRowTag $ SMB.dataToIntMapFromFoldable F.rcast psKeys
-  SG.addModelIndexes psRowTag F.rcast groups'
+  psRowTag <- S.addData "PSData" gqIDT (S.ToFoldable DP.unPSData)
+  S.addGroupIndexForData gqIDT psGtt psRowTag $ S.makeIndexFromFoldable show F.rcast psKeys
+  S.addGroupIntMapForData gqIDT psGtt psRowTag $ S.dataToIntMapFromFoldable F.rcast psKeys
+  S.addGroupIndexes gqIDT psRowTag F.rcast groups'
 
 --NB: parsed summary data has stan indexing, i.e., Arrays start at 1.
 --NB: Will return no prediction (Nothing) for "both" model for now. Might eventually return both predictions?
@@ -304,24 +328,24 @@ modelResultAction :: forall k l r b .
                      )
                   => ModelConfig b
                   -> RunConfig l
-                  -> SC.ResultAction r CESData (DP.PSData k) SMB.DataSetGroupIntMaps () (MC.PSMap l MT.ConfidenceInterval, MC2.ModelParameters)
-modelResultAction config runConfig = SC.UseSummary f where
+                  -> S.ResultAction CESData (DP.PSData k) S.DataSetGroupIntMaps S.DataSetGroupIntMaps r () (MC.PSMap l MT.ConfidenceInterval, MC2.ModelParameters)
+modelResultAction config runConfig = S.UseSummary f where
   f summary _ modelDataAndIndexes_C gqDataAndIndexes_CM = do
     (modelData, _resultIndexesE) <- K.ignoreCacheTime modelDataAndIndexes_C
      -- compute means of predictors because model was zero-centered in them
     let mdMeansFld :: DP.LPredictorsR F.⊆ rs
-                   => DM.DesignMatrixRow (F.Record DP.LPredictorsR) -> FL.Fold (F.Record rs) [Double]
+                   => S.DesignMatrixRow (F.Record DP.LPredictorsR) -> FL.Fold (F.Record rs) [Double]
         mdMeansFld dmr =
-          let covariates = DM.designMatrixRowF $ contramap F.rcast dmr
-              nPredictors = DM.rowLength dmr
+          let covariates = S.designMatrixRowF $ contramap F.rcast dmr
+              nPredictors = SBB.rowLength dmr
           in FL.premap (VU.toList . covariates)
              $ traverse (\n -> FL.premap (List.!! n) FL.mean) [0..(nPredictors - 1)]
-        mdMeansLM :: DM.DesignMatrixRow (F.Record DP.LPredictorsR) -> [Double]
+        mdMeansLM :: S.DesignMatrixRow (F.Record DP.LPredictorsR) -> [Double]
         mdMeansLM dmr = FL.fold (FL.premap (F.rcast @DP.LPredictorsR) $ mdMeansFld dmr) $ unCESData modelData
-        getVector n = K.knitEither $ SP.getVector . fmap CS.mean <$> SP.parse1D n (CS.paramStats summary)
-        betaSIF :: DM.DesignMatrixRow (F.Record DP.LPredictorsR) -> [Double] -> K.Sem r (VU.Vector (Double, Double))
+        getVector n = K.knitEither $ S.getVector . fmap CS.mean <$> S.parse1D n (CS.paramStats summary)
+        betaSIF :: S.DesignMatrixRow (F.Record DP.LPredictorsR) -> [Double] -> K.Sem r (VU.Vector (Double, Double))
         betaSIF dmr mdMeansL = do
-          case DM.rowLength dmr of
+          case SBB.rowLength dmr of
             0 -> pure VU.empty
             _p -> do
               betaV <- getVector "beta"
@@ -332,10 +356,11 @@ modelResultAction config runConfig = SC.UseSummary f where
       Just (_gtt, pst) -> case gqDataAndIndexes_CM of
         Nothing -> K.knitError "modelResultAction: Expected gq data and indexes but got Nothing."
         Just gqDaI_C -> do
-          let getVectorPcts n = K.knitEither $ SP.getVector . fmap CS.percents <$> SP.parse1D n (CS.paramStats summary)
+          let getVectorPcts n = K.knitEither $ S.getVector . fmap CS.percents <$> S.parse1D n (CS.paramStats summary)
+--              rtt ::  S.RowTypeTag (F.Record (DP.PSDataR k)) = S.RowTypeTag "PSData"
           (_gqData, gqIndexesE) <- K.ignoreCacheTime gqDaI_C
           grpIM <- K.knitEither
-             $ gqIndexesE >>= SMB.getGroupIndex (SMB.RowTypeTag @(F.Record (DP.PSDataR k)) SC.GQData "PSData") (MC.psGroupTag @l)
+             $ gqIndexesE >>= S.getGroupIndex (S.RowTypeTag @(F.Record (DP.PSDataR k)) "PSData") (MC.psGroupTag @l)
 
           psTByGrpV <- getVectorPcts $ psPrefix pst <> "_byGrp"
           K.knitEither $ M.fromList . zip (IM.elems grpIM) <$> (traverse MT.listToCI $ V.toList psTByGrpV)
@@ -350,7 +375,7 @@ instance Flat.Flat CESData where
 
 cachedPreppedCES :: (K.KnitEffects r, BRCC.CacheEffects r)
                  => MR.CacheStructure () ()
-                 -> CCES.CESYear
+                 -> CCES.SurveyYear
                  -> K.Sem r (K.ActionWithCacheTime r CESData)
 cachedPreppedCES cacheStructure cy = do
   cacheDirE' <- K.knitMaybe "cachedPreppedCES: Empty cacheDir given!" $ BRCC.insureFinalSlashE $ MR.csProjectCacheDirE cacheStructure
@@ -369,7 +394,7 @@ cachedPreppedCES cacheStructure cy = do
   BRCC.retrieveOrMakeD cacheKey deps $ \(ces, acs) -> (fmap CESData $ cesAddDensity cy acs ces)
 
 cesAddDensity :: (K.KnitEffects r)
-              => CCES.CESYear
+              => CCES.SurveyYear
               -> F.FrameRec DDP.ACSa5ByCDR
               -> F.FrameRec (DP.CDKeyR V.++ DP.DCatsR V.++ CountDataR)
               -> K.Sem r (F.FrameRec CESByCDR)
@@ -388,7 +413,7 @@ cesAddDensity cesYr acs ces = K.wrapPrefix "TSP_Religion.Model.cesAddDensity" $ 
 
 cesCountedEvangelicalsByCD ∷ (K.KnitEffects r, BRCC.CacheEffects r)
                            => Bool
-                           -> CCES.CESYear
+                           -> CCES.SurveyYear
                            -> K.Sem r (K.ActionWithCacheTime r (F.FrameRec (DP.CDKeyR V.++ DP.DCatsR V.++ CountDataR)))
 cesCountedEvangelicalsByCD clearCaches cy = do
   ces_C ← CCES.cesLoader cy

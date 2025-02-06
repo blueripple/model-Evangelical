@@ -1,15 +1,18 @@
-packages: ./ ../model-election2 ~/DataScience/hvega-utils ../data-CES
+packages: ./ ../model-election2 ../model-demographic ~/DataScience/hvega-utils ../data-CES
 jobs: 4
 with-compiler: ghc
 
 allow-newer: polysemy-zoo:ghc-prim, streamly-core
            , freer-simple:template-haskell
            , foldl-statistics:hashable, foldl-statistics:profunctors
-           , cereal-time:time
-           , heidi:base
-           , generic-trie:base
+--           , cereal-time:time
+--           , heidi:base
+--           , generic-trie:base
            , streamly-bytestring:streamly-core
            , nonlinear-optimization:primitive, nonlinear-optimization:vector
+           , bytestring
+           , base
+           , time
 
 flags: +streamly9
 
@@ -25,7 +28,7 @@ import: ../cabal_repo_imports/data-ACS-PUMS.project
 import: ../cabal_repo_imports/data-CPS-VS.project
 import: ../cabal_repo_imports/data-RDH-voterfiles.project
 import: ../cabal_repo_imports/model-tools.project
-import: ../cabal_repo_imports/model-demographic.project
+--import: ../cabal_repo_imports/model-demographic.project
 --import: ../cabal_repo_imports/model-election2.project
 import: ../cabal_repo_imports/haskell-stan.project
 import: ../cabal_repo_imports/knit-haskell.project
