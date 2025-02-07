@@ -46,21 +46,7 @@ import qualified Knit.Report as K
 
 import qualified Stan as S
 import qualified Stan.Libraries.BuildingBlocks as SBB (rowLength)
-import Stan (TypedList(..))
 import Stan.Operators
-{-
-import qualified Stan.ModelBuilder as SMB
-import qualified Stan.ModelRunner as SMR
-import qualified Stan.ModelBuilder.TypedExpressions.Statements as TE
-import qualified Stan.ModelBuilder.TypedExpressions.Operations as TEO
-import qualified Stan.ModelBuilder.TypedExpressions.StanFunctions as SF
-import qualified Stan.Parameters as SP
-import qualified Stan.ModelConfig as SC
-import qualified Stan.RScriptBuilder as SR
-import qualified Stan.ModelBuilder.BuildingBlocks as SBB
-import qualified Stan.ModelBuilder.BuildingBlocks.GroupAlpha as SG
-import qualified Stan.ModelBuilder.DesignMatrix as DM
--}
 import qualified CmdStan as CS
 
 import qualified Frames as F
@@ -73,7 +59,7 @@ import qualified Frames.Streamly.InCore as FI
 import qualified Frames.Serialize as FS
 
 import qualified Control.Foldl as FL
-import qualified Control.Foldl.Statistics as FLS
+--import qualified Control.Foldl.Statistics as FLS
 import Control.Lens (view)
 
 import qualified Flat
@@ -89,7 +75,7 @@ import qualified Data.Vinyl.TypeLevel as V
 FS.declareColumn "NEvangelical" ''Int
 FS.declareColumn "NEvangelicalW" ''Double
 
-type CountDataR = [DP.SurveyWeight, DP.Surveyed, NEvangelical, DP.SurveyedW, NEvangelicalW]
+type CountDataR = [DP.SurveyWeight, DP.Surveyed, DP.SurveyedESS, NEvangelical, NEvangelicalW]
 
 type CESByR k = k V.++ DP.PredictorsR V.++ CountDataR
 
@@ -115,14 +101,15 @@ runEvangelicalModel :: forall l r ks b .
                 => CCES.SurveyYear
                 -> MR.CacheStructure () ()
                 -> PSType (F.Record DP.DCatsR -> Bool)
+                -> DP.SurveyPortion
                 -> ModelConfig b
                 -> K.ActionWithCacheTime r (DP.PSData ks)
                 -> K.Sem r (K.ActionWithCacheTime r (MC.PSMap l MT.ConfidenceInterval, MC2.ModelParameters))
-runEvangelicalModel cesYear cacheStructure psType mc psData_C = do
+runEvangelicalModel cesYear cacheStructure psType sp mc psData_C = do
   let --config = MC2.TurnoutOnly tc
       runConfig = RunConfig False False (Just (MC.psGroupTag @l, psType))
-  modelData_C <- cachedPreppedCES cacheStructure cesYear
-  runModel (MR.csModelDirE cacheStructure)  ("E_" <> show (CCES.cesYear cesYear))
+  modelData_C <- cachedPreppedCES cacheStructure cesYear sp
+  runModel (MR.csModelDirE cacheStructure)  ("E_" <> show (CCES.cesYear cesYear) <> "_" <> DP.surveyPortionText sp)
     (MR.csPSName cacheStructure) runConfig mc modelData_C psData_C
 
 type ModelRTT = S.RowTypeTag CESByCD
@@ -133,21 +120,19 @@ evangelicalModelData mc = do
   let modelIDT :: S.InputDataType S.ModelDataT CESData = S.ModelData
       cesSurveyDataTag :: S.StanModelBuilderEff CESData gq ModelRTT
       cesSurveyDataTag = S.getRTT modelIDT "CES"
-  let uwSurveyed :: FC.ElemsOf rs [DP.Surveyed, DP.SurveyWeight] => ModelRTT -> S.StanModelBuilderEff CESData gq S.IntArrayE
+  let uwSurveyed :: ModelRTT -> S.StanModelBuilderEff CESData gq S.IntArrayE
       uwSurveyed rtt = S.addCountData modelIDT rtt "Surveyed" (view DP.surveyed)
       weightedCount ws = DP.weightedCountF ws (view DP.surveyed) (view DP.surveyWeight) (view DP.surveyedESS)
       weightedQty ws = DP.weightedQtyF ws (view DP.surveyed) (view DP.surveyWeight) (view DP.surveyedESS)
-      uwEvangelical :: FC.ElemsOf rs [NEvangelical, DP.SurveyWeight] => ModelRTT -> S.StanModelBuilderEff CESData gq S.IntArrayE
+      uwEvangelical :: ModelRTT -> S.StanModelBuilderEff CESData gq S.IntArrayE
       uwEvangelical rtt = S.addCountData modelIDT rtt "Evangelical" (view nEvangelical)
-      wSurveyed :: FC.ElemsOf rs '[DP.Surveyed, DP.SurveyWeight, DP.SurveyedESS]
-                => DP.WeightingStyle -> ModelRTT -> S.StanModelBuilderEff CESData gq S.VectorE
+      wSurveyed :: DP.WeightingStyle -> ModelRTT -> S.StanModelBuilderEff CESData gq S.VectorE
       wSurveyed ws rtt = S.addRealData modelIDT rtt "Surveyed" (Just 0) Nothing (weightedCount ws)
-      wEvangelical :: FC.ElemsOf rs [NEvangelicalW, DP.SurveyWeight] => DP.WeightingStyle -> ModelRTT -> S.StanModelBuilderEff CESData gq S.VectorE
+      wEvangelical :: DP.WeightingStyle -> ModelRTT -> S.StanModelBuilderEff CESData gq S.VectorE
       wEvangelical ws rtt = S.addRealData modelIDT rtt "Evangelical" (Just 0) Nothing (weightedQty ws (view nEvangelicalW))
-      rwSurveyed :: FC.ElemsOf rs [DP.Surveyed, DP.SurveyWeight, DP.SurveyedESS]
-                 => DP.WeightingStyle -> ModelRTT -> S.StanModelBuilderEff CESData gq S.IntArrayE
+      rwSurveyed :: DP.WeightingStyle -> ModelRTT -> S.StanModelBuilderEff CESData gq S.IntArrayE
       rwSurveyed ws rtt = S.addCountData modelIDT rtt "Surveyed" (round . weightedCount ws)
-      rwEvangelical ::  FC.ElemsOf rs [NEvangelical, DP.SurveyWeight] => DP.WeightingStyle -> ModelRTT -> S.StanModelBuilderEff CESData gq S.IntArrayE
+      rwEvangelical :: DP.WeightingStyle -> ModelRTT -> S.StanModelBuilderEff CESData gq S.IntArrayE
       rwEvangelical ws rtt = S.addCountData modelIDT rtt "Evangelical" (round . weightedQty ws (view nEvangelicalW))
   case mc.mcSurveyAggregation of
         MC.UnweightedAggregation -> fmap MC.ModelData $ cesSurveyDataTag >>= \rtt -> MC.covariatesAndCountsFromData rtt mc uwSurveyed uwEvangelical
@@ -162,8 +147,8 @@ psPrefix (PSAll p) = p
 psPrefix (PSGiven p _ _) = p
 psPrefix (PSAmong p _ _) = p
 
-psTypeDataGQ :: forall k md gq . DP.DCatsR F.⊆ DP.PSDataR k
-             => S.RowTypeTag (F.Record (DP.PSDataR k)) -> PSType (F.Record DP.DCatsR -> Bool) -> S.StanModelBuilderEff md gq (PSType S.IntArrayE)
+psTypeDataGQ :: forall k  . DP.DCatsR F.⊆ DP.PSDataR k
+             => S.RowTypeTag (F.Record (DP.PSDataR k)) -> PSType (F.Record DP.DCatsR -> Bool) -> S.StanModelBuilderEff CESData (DP.PSData k) (PSType S.IntArrayE)
 psTypeDataGQ psRowTag pst = do
 --  cesGQRowTag <- S.dataSetTag @CESByCD S.ModelData "CES"
   let boolToInt :: Bool -> Int
@@ -271,23 +256,11 @@ runModel modelDirE modelName gqName runConfig config modelData_C psData_C = do
   K.logLE K.Info $ modelName <> " run complete."
   pure res_C
 
-groupBuilder :: forall g k l b .
-                 (Foldable g
---                 , Typeable (DP.PSDataR k)
---                 , Show (F.Record l)
---                 , Ord (F.Record l)
---                 , l F.⊆ DP.PSDataR k
---                 , Typeable l
---                 , F.ElemOf (DP.PSDataR k) GT.StateAbbreviation
---                 , DP.DCatsR F.⊆ DP.PSDataR k
-                 )
-               => ModelConfig b
-               -> g Text
---               -> g (F.Record l)
-               -> S.StanDataBuilderEff S.ModelDataT CESData ()
+groupBuilder :: forall g b . Foldable g => ModelConfig b -> g Text -> S.StanDataBuilderEff S.ModelDataT CESData ()
 groupBuilder _config states = do
   let groups' = MC.groups states
       modelIDT :: S.InputDataType S.ModelDataT CESData = S.ModelData
+  S.addGroupSizes modelIDT groups'
   S.addData "CES" modelIDT (S.ToFoldable unCESData) >>= MC.addGroupIndexesAndIntMaps groups' >> pure ()
 --  psGroupBuilder states psKeys
 
@@ -295,7 +268,7 @@ groupBuilder _config states = do
 -- But say you want to predict turnout by race, nationally.
 -- Now l ~ '[Race5C]
 -- How about turnout by Education in each state? Then l ~ [StateAbbreviation, Education4C]
-psGroupBuilder :: forall g k l md .
+psGroupBuilder :: forall g k l .
                  (Foldable g
                  , Typeable (DP.PSDataR k)
                  , Show (F.Record l)
@@ -311,8 +284,9 @@ psGroupBuilder :: forall g k l md .
 psGroupBuilder states psKeys = do
   let groups' = MC.groups states
       gqIDT :: S.InputDataType S.GQDataT (DP.PSData k) = S.GQData
-      psGtt = MC.psGroupTag @l
+--      psGtt = MC.psGroupTag @l
   psRowTag <- S.addData "PSData" gqIDT (S.ToFoldable DP.unPSData)
+  psGtt <-  fst <$> S.addGroup @(F.Record l) gqIDT "PSGrp" (length psKeys)
   S.addGroupIndexForData gqIDT psGtt psRowTag $ S.makeIndexFromFoldable show F.rcast psKeys
   S.addGroupIntMapForData gqIDT psGtt psRowTag $ S.dataToIntMapFromFoldable F.rcast psKeys
   S.addGroupIndexes gqIDT psRowTag F.rcast groups'
@@ -376,10 +350,11 @@ instance Flat.Flat CESData where
 cachedPreppedCES :: (K.KnitEffects r, BRCC.CacheEffects r)
                  => MR.CacheStructure () ()
                  -> CCES.SurveyYear
+                 -> DP.SurveyPortion
                  -> K.Sem r (K.ActionWithCacheTime r CESData)
-cachedPreppedCES cacheStructure cy = do
+cachedPreppedCES cacheStructure cy sp = do
   cacheDirE' <- K.knitMaybe "cachedPreppedCES: Empty cacheDir given!" $ BRCC.insureFinalSlashE $ MR.csProjectCacheDirE cacheStructure
-  rawCESByCD_C <- cesCountedEvangelicalsByCD False cy
+  rawCESByCD_C <- cesCountedEvangelicalsByCD False cy sp
   let cyInt = CCES.cesYear cy
       (srcWindow, cachedSrc) = ACS.acs1Yr2012_22
   acs_C <- fmap (F.filterFrame ((== DT.Citizen) . view DT.citizenC)) <$> (DDP.cachedACSa5ByCD srcWindow cachedSrc (min 2022 cyInt) (Just cyInt)) -- so we get density from closest year as survey
@@ -414,47 +389,53 @@ cesAddDensity cesYr acs ces = K.wrapPrefix "TSP_Religion.Model.cesAddDensity" $ 
 cesCountedEvangelicalsByCD ∷ (K.KnitEffects r, BRCC.CacheEffects r)
                            => Bool
                            -> CCES.SurveyYear
+                           -> DP.SurveyPortion
                            -> K.Sem r (K.ActionWithCacheTime r (F.FrameRec (DP.CDKeyR V.++ DP.DCatsR V.++ CountDataR)))
-cesCountedEvangelicalsByCD clearCaches cy = do
+cesCountedEvangelicalsByCD clearCaches cy sp = do
   ces_C ← CCES.cesLoader cy
   let cacheKey = "model/TSP_Religion/ces" <> show (CCES.cesYear cy) <> "ByCD.bin"
   when clearCaches $ BRCC.clearIfPresentD cacheKey
-  BRCC.retrieveOrMakeFrame cacheKey ces_C $ (fmap (fmap F.rcast) . cesMR @DP.CDKeyR (CCES.cesYear cy))
+  BRCC.retrieveOrMakeFrame cacheKey ces_C $ (fmap (fmap F.rcast) . cesMR @DP.CDKeyR (CCES.cesYear cy) sp)
 
 cesMR ∷ forall lk rs f m .
         (Foldable f, Functor f, Monad m
-        , FC.ElemsOf rs [BR.Year, DT.EvangelicalC, DT.EducationC, DT.HispC, DT.Race5C, CCES.CESPostWeight]
+        , FC.ElemsOf rs [BR.Year, DT.EvangelicalC, DT.EducationC, DT.HispC, DT.Race5C, CCES.VRegistrationC, CCES.VTurnoutC]
+        , FC.ElemsOf rs [CCES.CESPreWeight, CCES.CESPostWeight, CCES.CESVVPreWeight, CCES.CESVVPostWeight]
         , rs F.⊆ (DT.Education4C ': rs)
         , (lk V.++ DP.DCatsR) V.++ CountDataR ~ ((lk V.++ DP.DCatsR) V.++ CountDataR)
         , Ord (F.Record (lk V.++ DP.DCatsR))
         , (lk V.++ DP.DCatsR) F.⊆ (DT.Education4C ': rs)
         , FI.RecVec ((lk V.++ DP.DCatsR) V.++ CountDataR)
         )
-      ⇒ Int -> f (F.Record rs) → m (F.FrameRec (lk V.++ DP.DCatsR V.++ CountDataR))
-cesMR earliestYear =
+      ⇒ Int
+      -> DP.SurveyPortion
+      -> f (F.Record rs)
+      → m (F.FrameRec (lk V.++ DP.DCatsR V.++ CountDataR))
+cesMR earliestYear sp =
   BRF.frameCompactMR
-  (FMR.unpackFilterOnField @BR.Year (>= earliestYear))
+  (DP.cesMRUnpack earliestYear sp)
   (FMR.assignKeysAndData @(lk V.++ DP.DCatsR) @rs)
-  countCESF
+  (countCESF sp)
   . fmap (DP.cesAddEducation4 . DP.cesRecodeHispanic)
 
-countCESF :: (FC.ElemsOf rs [DT.EvangelicalC, CCES.CESPostWeight])
-          => FL.Fold
-             (F.Record rs)
-             (F.Record CountDataR)
-countCESF =
-  let wgt = view CCES.cESPostWeight
+countCESF :: (FC.ElemsOf rs [DT.EvangelicalC, CCES.CESPreWeight, CCES.CESPostWeight, CCES.CESVVPreWeight, CCES.CESVVPostWeight])
+          => DP.SurveyPortion
+          -> FL.Fold
+          (F.Record rs)
+          (F.Record CountDataR)
+countCESF sp =
+  let wgt = DP.cesWeight sp
       evangelical = (== DT.Evangelical) . view DT.evangelicalC
       surveyedF = FL.length
       surveyWgtF = FL.premap wgt FL.sum
-      lmvskSurveyedF = FL.premap wgt FLS.fastLMVSK
-      essSurveyedF = DP.effSampleSizeFld lmvskSurveyedF
+--      lmvskSurveyedF = FL.premap wgt FLS.fastLMVSK
+      essSurveyedF = DP.effSampleSizeFld wgt
       evangelicalF = FL.prefilter evangelical FL.length
-      waEvangelicalF = DP.wgtdAverageBoolFld wgt evangelical
-   in (\sw s ev eS wEv →
-          sw F.&: s F.&: ev F.&: eS F.&: min eS (eS * wEv) F.&: V.RNil)
+      waEvangelicalF = DP.wgtdBoolFld wgt evangelical
+   in (\sw s essS ev wEv →
+          sw F.&: s F.&: essS F.&: ev F.&: wEv F.&: V.RNil)
       <$> surveyWgtF
       <*> surveyedF
-      <*> evangelicalF
       <*> essSurveyedF
+      <*> evangelicalF
       <*> waEvangelicalF
