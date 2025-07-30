@@ -14,6 +14,8 @@ allow-newer: polysemy-zoo:ghc-prim, streamly-core
            , base
            , time
 
+allow-newer: base, ghc-prim, template-haskell, time, bytestring, containers, hashable, lens, profunctors, primitive, text, vector, constraints, extra
+
 flags: +streamly9
 
 import: ../cabal_repo_imports/small-data-sets.project
@@ -42,3 +44,4 @@ import: ../cabal_repo_imports/nlopt-haskell.project
 import: ../cabal_repo_imports/hTensor.project
 import: ../cabal_repo_imports/map-reduce-folds.project
 import: ../cabal_repo_imports/heidi.project
+import: ../cabal_repo_imports/dependent-hashmap.project
